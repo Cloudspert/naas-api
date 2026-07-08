@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "naas-api.fullname" . }}-config
+  labels:
+    {{- include "naas-api.labels" . | nindent 4 }}
+data:
+  APP_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  APP_IN_CLUSTER: {{ .Values.config.inCluster | quote }}
+  APP_NAMESPACE_LABEL_SELECTOR: {{ .Values.config.namespaceLabelSelector | quote }}
+  APP_CACHE_REFRESH_INTERVAL_SECONDS: {{ .Values.config.cacheRefreshIntervalSeconds | quote }}
+  APP_DELETION_ANNOTATION_KEY: {{ .Values.config.deletionAnnotationKey | quote }}
+  APP_MANAGED_LABEL: {{ .Values.config.managedLabel | quote }}
+  APP_AUTH_MODULE: {{ .Values.config.authModule | quote }}

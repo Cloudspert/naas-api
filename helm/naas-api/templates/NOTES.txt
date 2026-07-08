@@ -1,0 +1,26 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}".
+
+API base path: /api/v1/namespaces
+Interactive docs (Swagger UI): /docs
+
+{{- if .Values.route.enabled }}
+Route:
+  oc get route {{ include "naas-api.fullname" . }} -n {{ .Release.Namespace }}
+{{- else if .Values.ingress.enabled }}
+Ingress:
+  kubectl -n {{ .Release.Namespace }} get ingress {{ include "naas-api.fullname" . }}
+  {{- if .Values.ingress.host }}
+  URL: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+  {{- end }}
+{{- else }}
+Port-forward to try it locally:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "naas-api.fullname" . }} 8080:{{ .Values.service.port }}
+{{- end }}
+
+Example (create a namespace with quotas):
+  curl -u admin:<password> -X POST http://localhost:8080/api/v1/namespaces \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"team-a","limits":{"memory":"8Gi","cpu":"4","storage":"50Gi"}}'
+
+WARNING: change the default basic-auth credentials:
+  helm upgrade {{ .Release.Name }} ... --set-json 'auth.basicUsers={"admin":"a-strong-password"}'

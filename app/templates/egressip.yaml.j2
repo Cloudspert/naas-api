@@ -1,0 +1,25 @@
+apiVersion: {{ api_version }}
+kind: {{ kind }}
+metadata:
+  name: {{ name }}
+  labels:
+{% for k, v in metadata_labels.items() %}
+    {{ k }}: "{{ v }}"
+{% endfor %}
+spec:
+  egressIPs:
+{% for ip in egress_ips %}
+    - "{{ ip }}"
+{% endfor %}
+  namespaceSelector:
+    matchLabels:
+{% for k, v in namespace_labels.items() %}
+      {{ k }}: "{{ v }}"
+{% endfor %}
+{% if pod_labels %}
+  podSelector:
+    matchLabels:
+{% for k, v in pod_labels.items() %}
+      {{ k }}: "{{ v }}"
+{% endfor %}
+{% endif %}

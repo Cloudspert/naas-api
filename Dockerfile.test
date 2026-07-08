@@ -1,0 +1,20 @@
+# Test image: runs the unit + functional suite against the in-memory fake
+# cluster (no real Kubernetes needed). Pip-only, like the production image.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install deps first for layer caching. requirements-dev.txt pulls in
+# requirements.txt plus pytest + httpx.
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# Copy the source (overridden by the bind mount in docker-compose for live code).
+COPY . .
+
+CMD ["pytest"]

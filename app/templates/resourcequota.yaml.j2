@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ quota_name | default('naas-api-quota') }}
+  namespace: {{ namespace }}
+  labels:
+    {{ managed_label_key }}: "{{ managed_label_value }}"
+spec:
+  hard:
+{% if memory %}
+    requests.memory: "{{ memory }}"
+    limits.memory: "{{ memory }}"
+{% endif %}
+{% if cpu %}
+    requests.cpu: "{{ cpu }}"
+    limits.cpu: "{{ cpu }}"
+{% endif %}
+{% if storage %}
+    requests.storage: "{{ storage }}"
+{% endif %}

@@ -1,0 +1,25 @@
+# Developer convenience: run the test suite in a container, no local Python
+# or virtualenv required.
+#
+#   docker compose run --rm tests                 # run everything
+#   docker compose run --rm tests pytest -k auth  # filter
+#   docker compose run --rm tests pytest -x -q    # stop on first failure
+#   docker compose build tests                    # rebuild after dep changes
+#
+# The project is bind-mounted, so edits on the host are picked up immediately —
+# no rebuild needed unless requirements change.
+
+services:
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    image: naas-api-tests
+    volumes:
+      - ./:/app
+      # Keep the pytest cache off the host (avoids clutter / permission noise).
+      - pytest-cache:/app/.pytest_cache
+    command: pytest
+
+volumes:
+  pytest-cache:

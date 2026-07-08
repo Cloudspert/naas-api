@@ -1,0 +1,81 @@
+image:
+  repository: cloudspert/naas-api
+  tag: "1.0"
+  pullPolicy: Always
+
+replicaCount: 1
+
+# Application configuration -> rendered into a ConfigMap and injected as
+# APP_* environment variables.
+config:
+  logLevel: INFO
+  inCluster: true
+  # Only namespaces carrying this label are returned by the list endpoint.
+  namespaceLabelSelector: "managed-by=naas-api"
+  # Background cache refresh interval (seconds).
+  cacheRefreshIntervalSeconds: 30
+  # Annotation written when a namespace is (soft) marked for deletion.
+  deletionAnnotationKey: "naas-api/marked-for-deletion-at"
+  # Label stamped onto every resource the API creates.
+  managedLabel: "managed-by=naas-api"
+  # Active authentication module.
+  authModule: basic
+
+# Basic-auth credentials -> rendered into a Secret as a JSON map.
+# Override at install time:  --set-json 'auth.basicUsers={"admin":"s3cret"}'
+auth:
+  basicUsers:
+    admin: changeme
+
+serviceAccount:
+  create: true
+  name: ""  # defaults to the release fullname
+
+rbac:
+  create: true
+  # When true the API can list/delete *any* resource type (needed for a
+  # complete force-delete of CRD-backed objects). Set false to restrict to the
+  # core resource set defined in the ClusterRole below.
+  allowWildcardForceDelete: true
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# OpenShift Route (set enabled: false on plain Kubernetes and use an Ingress).
+route:
+  enabled: false
+  host: ""
+  tls:
+    termination: edge
+
+# Kubernetes Ingress (alternative to the OpenShift Route above, for plain
+# Kubernetes / non-OCP ingress controllers). Enable at most one of route/ingress.
+ingress:
+  enabled: true
+  className: ""            # e.g. "nginx"; empty uses the cluster default class
+  annotations: {}          # e.g. nginx.ingress.kubernetes.io/...
+  host: "naas-api.example.com"                 # e.g. "naas-api.example.com"; empty = no host match
+  path: "/"
+  pathType: Prefix
+  tls: []                  # e.g. [{secretName: naas-api-tls, hosts: [naas-api.example.com]}]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+podSecurityContext: {}
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
