@@ -29,11 +29,18 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          env:
+            # Read-only root FS: pin Python's temp dir to the writable emptyDir.
+            - name: TMPDIR
+              value: {{ .Values.tmpDir.mountPath | quote }}
           envFrom:
             - configMapRef:
                 name: {{ include "naas-api.fullname" . }}-config
             - secretRef:
                 name: {{ include "naas-api.fullname" . }}-auth
+          volumeMounts:
+            - name: tmp
+              mountPath: {{ .Values.tmpDir.mountPath }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -52,6 +59,12 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            {{- with .Values.tmpDir.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

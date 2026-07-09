@@ -72,9 +72,18 @@ podSecurityContext: {}
 securityContext:
   allowPrivilegeEscalation: false
   runAsNonRoot: true
+  readOnlyRootFilesystem: true
   capabilities:
     drop:
       - ALL
+
+# With a read-only root filesystem, Python still needs a writable temp dir.
+# tempfile resolves to /tmp first, so a single emptyDir there is enough.
+# TMPDIR pins it explicitly. Add more mountPaths only if a future dependency
+# needs them.
+tmpDir:
+  mountPath: /tmp
+  sizeLimit: 64Mi
 
 nodeSelector: {}
 tolerations: []
