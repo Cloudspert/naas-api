@@ -46,6 +46,8 @@ service:
 route:
   enabled: false
   host: ""
+  labels: {}               # extra labels, merged with the chart labels
+  annotations: {}          # e.g. haproxy.router.openshift.io/timeout: 30s
   tls:
     termination: edge
 
@@ -54,6 +56,7 @@ route:
 ingress:
   enabled: true
   className: ""            # e.g. "nginx"; empty uses the cluster default class
+  labels: {}               # extra labels, merged with the chart labels
   annotations: {}          # e.g. nginx.ingress.kubernetes.io/...
   host: "naas-api.example.com"                 # e.g. "naas-api.example.com"; empty = no host match
   path: "/"
