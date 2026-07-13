@@ -53,6 +53,11 @@ Quota values are **Kubernetes quantity strings**:
 
 Every dimension is **optional** — send only the ones you want to set.
 
+> **Bare numbers for memory/storage default to `Gi`.** Sending `memory: "8"`
+> (or `8`) is treated as `8Gi`; `storage: 50` becomes `50Gi`. Values that already
+> carry a unit (`8Gi`, `512Mi`, …) are left as-is. **CPU is never rewritten** — a
+> bare number there means whole cores.
+
 ---
 
 ## Endpoints

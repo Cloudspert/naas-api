@@ -1,10 +1,14 @@
 """Namespace request/response models."""
 
+import re
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.models.common import NAME_RE
+
+# A bare number (int or decimal), e.g. "8" or "1.5" — no Kubernetes unit suffix.
+_BARE_NUMBER_RE = re.compile(r"^\d+(\.\d+)?$")
 
 
 class ResourceLimits(BaseModel):
@@ -13,6 +17,19 @@ class ResourceLimits(BaseModel):
     memory: Optional[str] = None
     cpu: Optional[str] = None
     storage: Optional[str] = None
+
+    @field_validator("memory", "storage", mode="before")
+    @classmethod
+    def default_gi_suffix(cls, value):
+        # A bare number for memory/storage gets a "Gi" suffix (e.g. 8 -> "8Gi").
+        # Values that already carry a unit (8Gi, 512Mi, ...) are left untouched.
+        # CPU is never touched (a bare number there means whole cores).
+        if value is None:
+            return None
+        text = str(value).strip()
+        if _BARE_NUMBER_RE.match(text):
+            return f"{text}Gi"
+        return text
 
     def is_empty(self) -> bool:
         return self.memory is None and self.cpu is None and self.storage is None

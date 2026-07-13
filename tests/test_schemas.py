@@ -46,3 +46,35 @@ def test_update_quota_accepts_single_dimension():
     req = UpdateQuotaRequest(limits=ResourceLimits(memory="16Gi"))
     assert req.limits.memory == "16Gi"
     assert req.limits.cpu is None and req.limits.storage is None
+
+
+# --- bare-number -> Gi normalization (memory & storage only) ----------------
+def test_bare_number_memory_and_storage_get_gi_suffix():
+    limits = ResourceLimits(memory="8", storage="50")
+    assert limits.memory == "8Gi"
+    assert limits.storage == "50Gi"
+
+
+def test_bare_int_input_is_accepted_and_suffixed():
+    limits = ResourceLimits(memory=8, storage=50)
+    assert limits.memory == "8Gi"
+    assert limits.storage == "50Gi"
+
+
+def test_decimal_memory_gets_gi_suffix():
+    assert ResourceLimits(memory="1.5").memory == "1.5Gi"
+
+
+def test_existing_units_are_preserved():
+    limits = ResourceLimits(memory="8Gi", storage="512Mi")
+    assert limits.memory == "8Gi"
+    assert limits.storage == "512Mi"
+
+
+def test_cpu_is_never_suffixed():
+    assert ResourceLimits(cpu="4").cpu == "4"
+
+
+def test_update_quota_bare_number_normalized():
+    req = UpdateQuotaRequest(limits=ResourceLimits(storage="20"))
+    assert req.limits.storage == "20Gi"

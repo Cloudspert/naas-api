@@ -59,6 +59,20 @@ def test_create_namespace(client):
     assert hard["requests.memory"] == "8Gi"
 
 
+def test_create_bare_numbers_get_gi_suffix(client):
+    test_client, fake = client
+    resp = test_client.post(
+        BASE,
+        json={"name": "team-a", "limits": {"memory": "8", "cpu": "4", "storage": "50"}},
+        auth=AUTH,
+    )
+    assert resp.status_code == 201
+    hard = resp.json()["details"]["quota"]
+    assert hard["requests.memory"] == "8Gi"
+    assert hard["requests.storage"] == "50Gi"
+    assert hard["requests.cpu"] == "4"  # cpu untouched
+
+
 def test_create_duplicate_returns_409(client):
     test_client, fake = client
     fake.core_v1.namespaces["team-a"] = _Namespace("team-a")
