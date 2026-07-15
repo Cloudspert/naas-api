@@ -18,7 +18,9 @@ router = APIRouter(prefix="/api/v1/namespaces", tags=["namespaces"])
              summary="Create a namespace with resource quotas")
 def create_namespace(payload: CreateNamespaceRequest, manager=Depends(get_manager),
                      _=Depends(require_auth)):
-    result = run(lambda: manager.create_namespace(payload.name, payload.limits, payload.labels))
+    result = run(lambda: manager.create_namespace(
+        payload.name, payload.limits, payload.labels, payload.annotations
+    ))
     return MessageResponse(message="namespace created", namespace=payload.name, details=result)
 
 

@@ -9,3 +9,9 @@ metadata:
     {{ k }}: "{{ v }}"
 {% endfor %}
 {% endif %}
+{% if extra_annotations %}
+  annotations:
+{% for k, v in extra_annotations.items() %}
+    {{ k }}: "{{ v }}"
+{% endfor %}
+{% endif %}

@@ -12,10 +12,30 @@ def test_namespace_template():
         managed_label_key="managed-by",
         managed_label_value="naas-api",
         extra_labels=None,
+        extra_annotations=None,
     )
     assert manifest["kind"] == "Namespace"
     assert manifest["metadata"]["name"] == "team-a"
     assert manifest["metadata"]["labels"]["managed-by"] == "naas-api"
+    assert "annotations" not in manifest["metadata"]
+
+
+def test_namespace_template_renders_labels_and_annotations():
+    manifest = render_manifest(
+        "namespace.yaml.j2",
+        name="team-a",
+        managed_label_key="managed-by",
+        managed_label_value="naas-api",
+        extra_labels={"company.example.io/env": "prod"},
+        extra_annotations={"company.example.io/contact-email": "dl@example.com"},
+    )
+    assert manifest["metadata"]["labels"] == {
+        "managed-by": "naas-api",
+        "company.example.io/env": "prod",
+    }
+    assert manifest["metadata"]["annotations"] == {
+        "company.example.io/contact-email": "dl@example.com"
+    }
 
 
 def test_quota_only_memory_renders_only_memory_keys():

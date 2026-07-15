@@ -50,6 +50,7 @@ class NamespaceCache:
                     name=ns.metadata.name,
                     status=ns.status.phase if ns.status else None,
                     labels=ns.metadata.labels or {},
+                    annotations=annotations,
                     marked_for_deletion_at=annotations.get(self.deletion_annotation_key),
                 )
             )

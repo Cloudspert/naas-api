@@ -39,8 +39,12 @@ class CreateNamespaceRequest(BaseModel):
     name: str
     limits: ResourceLimits = Field(default_factory=ResourceLimits)
     # Extra labels for the namespace; also inherited by its ResourceQuota.
-    # Keys may get a configured prefix (see APP_LABEL_KEY_PREFIX).
+    # Keys may get a configured prefix (see APP_KEY_PREFIX).
     labels: Optional[dict[str, str]] = None
+    # Free-form annotations on the namespace, for values labels cannot hold
+    # (emails/DLs contain "@", which is illegal in a label value). Same key
+    # prefixing as labels. Namespace-level only.
+    annotations: Optional[dict[str, str]] = None
 
     @field_validator("name")
     @classmethod
@@ -68,6 +72,7 @@ class NamespaceSummary(BaseModel):
     name: str
     status: Optional[str] = None
     labels: dict = Field(default_factory=dict)
+    annotations: dict = Field(default_factory=dict)
     marked_for_deletion_at: Optional[str] = None
 
 

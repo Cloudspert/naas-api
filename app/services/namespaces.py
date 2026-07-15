@@ -19,21 +19,28 @@ class NamespaceError(ApiError):
 
 class NamespaceManager:
     def __init__(self, k8s, managed_label_key, managed_label_value, deletion_annotation_key,
-                 label_key_prefix=None):
+                 key_prefix=None):
         self.k8s = k8s
         self.managed_label_key = managed_label_key
         self.managed_label_value = managed_label_value
         self.deletion_annotation_key = deletion_annotation_key
-        self.label_key_prefix = label_key_prefix
+        self.key_prefix = key_prefix
 
-    def create_namespace(self, name, limits, labels=None):
-        extra_labels = self.prefixed_labels(labels)
+    def create_namespace(self, name, limits, labels=None, annotations=None):
+        extra_labels = self.prefixed_keys(labels)
+        extra_annotations = self.prefixed_keys(annotations)
+        if self.deletion_annotation_key in extra_annotations:
+            raise NamespaceError(
+                f"annotation '{self.deletion_annotation_key}' is reserved", 422
+            )
+
         manifest = render_manifest(
             "namespace.yaml.j2",
             name=name,
             managed_label_key=self.managed_label_key,
             managed_label_value=self.managed_label_value,
             extra_labels=extra_labels or None,
+            extra_annotations=extra_annotations or None,
         )
         try:
             self.k8s.core_v1.create_namespace(body=manifest)
@@ -43,11 +50,18 @@ class NamespaceManager:
             raise NamespaceError(f"failed to create namespace: {exc.reason}", exc.status or 500)
 
         # The quota inherits the namespace's labels (already prefixed).
+        # Annotations stay namespace-level only.
         quota = self.apply_quota(name, limits, labels=extra_labels)
         logger.info(
-            "event=namespace_created namespace=%s quota=%s labels=%s", name, quota, extra_labels
+            "event=namespace_created namespace=%s quota=%s labels=%s annotations=%s",
+            name, quota, extra_labels, extra_annotations,
         )
-        return {"namespace": name, "quota": quota, "labels": extra_labels}
+        return {
+            "namespace": name,
+            "quota": quota,
+            "labels": extra_labels,
+            "annotations": extra_annotations,
+        }
 
     def update_quota(self, name, limits):
         self.require_namespace(name)
@@ -96,20 +110,20 @@ class NamespaceManager:
 
     # --- helpers -------------------------------------------------------------
 
-    def prefixed_labels(self, labels):
-        """Apply the configured key prefix to caller-supplied labels.
+    def prefixed_keys(self, entries):
+        """Apply the configured key prefix to caller-supplied labels/annotations.
 
         {"env": "prod"} -> {"company.example.io/env": "prod"} when a prefix is
         configured. Keys that already carry a prefix (contain "/") are left
         alone — Kubernetes allows only one prefix per key.
         """
-        if not labels:
+        if not entries:
             return {}
-        if not self.label_key_prefix:
-            return dict(labels)
+        if not self.key_prefix:
+            return dict(entries)
         return {
-            key if "/" in key else f"{self.label_key_prefix}/{key}": value
-            for key, value in labels.items()
+            key if "/" in key else f"{self.key_prefix}/{key}": value
+            for key, value in entries.items()
         }
 
     def apply_quota(self, namespace, limits, labels=None):

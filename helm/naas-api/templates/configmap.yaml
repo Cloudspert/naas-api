@@ -11,5 +11,5 @@ data:
   APP_CACHE_REFRESH_INTERVAL_SECONDS: {{ .Values.config.cacheRefreshIntervalSeconds | quote }}
   APP_DELETION_ANNOTATION_KEY: {{ .Values.config.deletionAnnotationKey | quote }}
   APP_MANAGED_LABEL: {{ .Values.config.managedLabel | quote }}
-  APP_LABEL_KEY_PREFIX: {{ .Values.config.labelKeyPrefix | quote }}
+  APP_KEY_PREFIX: {{ .Values.config.keyPrefix | quote }}
   APP_AUTH_MODULE: {{ .Values.config.authModule | quote }}

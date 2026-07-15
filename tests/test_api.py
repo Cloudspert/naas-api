@@ -93,6 +93,35 @@ def test_create_with_labels(client):
     assert quota_labels["env"] == "prod"
 
 
+def test_create_with_annotations_for_contact(client):
+    test_client, fake = client
+    resp = test_client.post(
+        BASE,
+        json={
+            "name": "team-a",
+            "annotations": {"contact-email": "dl-payments@example.com", "owner": "payments"},
+        },
+        auth=AUTH,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["details"]["annotations"]["contact-email"] == "dl-payments@example.com"
+    ns = fake.core_v1.namespaces["team-a"]
+    assert ns.metadata.annotations["contact-email"] == "dl-payments@example.com"
+
+
+def test_list_returns_annotations(client):
+    test_client, fake = client
+    fake.core_v1.namespaces["team-a"] = _Namespace(
+        "team-a",
+        labels={"managed-by": "naas-api"},
+        annotations={"contact-email": "dl@example.com"},
+    )
+    test_client.app.state.cache.refresh()
+
+    body = test_client.get(BASE, auth=AUTH).json()
+    assert body["items"][0]["annotations"]["contact-email"] == "dl@example.com"
+
+
 def test_create_duplicate_returns_409(client):
     test_client, fake = client
     fake.core_v1.namespaces["team-a"] = _Namespace("team-a")

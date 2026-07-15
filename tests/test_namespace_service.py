@@ -9,13 +9,13 @@ from tests.fakes import FakeK8sClient, _Namespace
 ANNOTATION = "naas-api/marked-for-deletion-at"
 
 
-def _manager(fake, label_key_prefix=None):
+def _manager(fake, key_prefix=None):
     return NamespaceManager(
         k8s=fake,
         managed_label_key="managed-by",
         managed_label_value="naas-api",
         deletion_annotation_key=ANNOTATION,
-        label_key_prefix=label_key_prefix,
+        key_prefix=key_prefix,
     )
 
 
@@ -68,7 +68,7 @@ def test_create_labels_applied_to_namespace_and_inherited_by_quota():
 
 def test_create_labels_get_configured_key_prefix():
     fake = FakeK8sClient()
-    result = _manager(fake, label_key_prefix="company.example.io").create_namespace(
+    result = _manager(fake, key_prefix="company.example.io").create_namespace(
         "team-a", ResourceLimits(memory="8Gi"), labels={"env": "prod"}
     )
 
@@ -84,7 +84,7 @@ def test_create_labels_get_configured_key_prefix():
 
 def test_key_that_already_has_a_prefix_is_not_double_prefixed():
     fake = FakeK8sClient()
-    result = _manager(fake, label_key_prefix="company.example.io").create_namespace(
+    result = _manager(fake, key_prefix="company.example.io").create_namespace(
         "team-a", ResourceLimits(), labels={"other.io/env": "prod", "team": "x"}
     )
     assert result["labels"] == {"other.io/env": "prod", "company.example.io/team": "x"}
@@ -101,6 +101,59 @@ def test_create_without_labels_still_works():
     result = _manager(fake).create_namespace("team-a", ResourceLimits(memory="8Gi"))
     assert result["labels"] == {}
     assert fake.core_v1.namespaces["team-a"].metadata.labels == {"managed-by": "naas-api"}
+
+
+# --- annotations (contact info) ---------------------------------------------
+def test_create_annotations_applied_to_namespace_only():
+    fake = FakeK8sClient()
+    result = _manager(fake).create_namespace(
+        "team-a",
+        ResourceLimits(memory="8Gi"),
+        annotations={"contact-email": "dl-payments@example.com"},
+    )
+
+    assert result["annotations"] == {"contact-email": "dl-payments@example.com"}
+    ns_annotations = fake.core_v1.namespaces["team-a"].metadata.annotations
+    assert ns_annotations["contact-email"] == "dl-payments@example.com"
+    # Annotations are namespace-level: the quota does NOT inherit them.
+    quota = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["metadata"]
+    assert "annotations" not in quota
+
+
+def test_create_annotations_get_configured_key_prefix():
+    fake = FakeK8sClient()
+    result = _manager(fake, key_prefix="company.example.io").create_namespace(
+        "team-a", ResourceLimits(), annotations={"contact-email": "dl@example.com"}
+    )
+    assert result["annotations"] == {"company.example.io/contact-email": "dl@example.com"}
+
+
+def test_annotation_value_may_contain_characters_labels_cannot():
+    # The whole point: "@" is illegal in a label value but fine in an annotation.
+    fake = FakeK8sClient()
+    _manager(fake).create_namespace(
+        "team-a", ResourceLimits(), annotations={"contact": "a@b.com, c@d.com"}
+    )
+    assert (
+        fake.core_v1.namespaces["team-a"].metadata.annotations["contact"] == "a@b.com, c@d.com"
+    )
+
+
+def test_reserved_deletion_annotation_is_rejected():
+    fake = FakeK8sClient()
+    with pytest.raises(NamespaceError) as exc:
+        _manager(fake).create_namespace(
+            "team-a", ResourceLimits(), annotations={ANNOTATION: "2020-01-01"}
+        )
+    assert exc.value.status_code == 422
+    assert "team-a" not in fake.core_v1.namespaces  # nothing created
+
+
+def test_create_without_annotations_still_works():
+    fake = FakeK8sClient()
+    result = _manager(fake).create_namespace("team-a", ResourceLimits())
+    assert result["annotations"] == {}
+    assert fake.core_v1.namespaces["team-a"].metadata.annotations == {}
 
 
 def test_namespace_exists_true_and_false():

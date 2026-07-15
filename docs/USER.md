@@ -75,22 +75,35 @@ Creates a namespace and applies a `ResourceQuota`.
 | `limits.cpu`     | string | no       | CPU quota.                                               |
 | `limits.storage` | string | no       | Storage request quota.                                   |
 | `labels`         | object | no       | Extra labels for the namespace — **also inherited by its ResourceQuota**. |
+| `annotations`    | object | no       | Free-form annotations on the namespace (contact email/DL, owner, …). Namespace-level only. |
 
 ```bash
 curl -u admin:pw -X POST https://<host>/api/v1/namespaces \
   -H 'Content-Type: application/json' \
   -d '{"name":"team-a",
        "limits":{"memory":"8Gi","cpu":"4","storage":"50Gi"},
-       "labels":{"env":"prod","team":"payments"}}'
+       "labels":{"env":"prod","team":"payments"},
+       "annotations":{"contact-email":"dl-payments@example.com","oncall":"a@x.com, b@x.com"}}'
 ```
 
-> **Label key prefix.** If the server is configured with a label key prefix
-> (`APP_LABEL_KEY_PREFIX`, e.g. `company.example.io`), your label keys are
-> namespaced automatically: sending `"env": "prod"` stores
+> **Labels vs annotations.** Use **labels** for short, selectable identifiers
+> (`env`, `team`) — they're filterable but Kubernetes restricts values to ≤63
+> chars of alphanumerics/`-_.`. Use **annotations** for anything else, including
+> **contact info**: an email/DL contains `@`, which is *not a legal label value*.
+> A useful pattern is both — `team: payments` as a label (selectable) and the
+> address as an annotation.
+
+> **Key prefix.** If the server is configured with a key prefix
+> (`APP_KEY_PREFIX`, e.g. `company.example.io`), your label **and annotation**
+> keys are namespaced automatically: `"env": "prod"` stores
 > `company.example.io/env: prod`. Keys that already contain a `/` are left as-is
-> (Kubernetes allows only one prefix per key), and the server's own
-> `managed-by` label is never prefixed. With no prefix configured, your keys are
-> used verbatim.
+> (Kubernetes allows only one prefix per key), and the server's own `managed-by`
+> label is never prefixed. With no prefix configured, keys are used verbatim.
+
+Annotations are returned by the list endpoint (see below), so you can build a
+mailing list from a single `GET /api/v1/namespaces`. The
+`naas-api/marked-for-deletion-at` annotation is **reserved** — setting it
+returns `422`.
 
 **`201 Created`**
 
@@ -133,6 +146,7 @@ curl -u admin:pw https://<host>/api/v1/namespaces
       "name": "team-a",
       "status": "Active",
       "labels": {"managed-by": "naas-api"},
+      "annotations": {"contact-email": "dl-payments@example.com"},
       "marked_for_deletion_at": null
     }
   ],

@@ -48,7 +48,11 @@ class FakeCoreV1:
         name = body["metadata"]["name"]
         if name in self.namespaces:
             raise ApiException(status=409, reason="AlreadyExists")
-        ns = _Namespace(name, labels=body["metadata"].get("labels", {}))
+        ns = _Namespace(
+            name,
+            labels=body["metadata"].get("labels", {}),
+            annotations=body["metadata"].get("annotations", {}),
+        )
         self.namespaces[name] = ns
         return ns
 
