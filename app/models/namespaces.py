@@ -38,6 +38,9 @@ class ResourceLimits(BaseModel):
 class CreateNamespaceRequest(BaseModel):
     name: str
     limits: ResourceLimits = Field(default_factory=ResourceLimits)
+    # Extra labels for the namespace; also inherited by its ResourceQuota.
+    # Keys may get a configured prefix (see APP_LABEL_KEY_PREFIX).
+    labels: Optional[dict[str, str]] = None
 
     @field_validator("name")
     @classmethod

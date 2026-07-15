@@ -76,6 +76,7 @@ tidy paths (`from app.models import …`, `from app.auth import build_auth`).
 | `deletion_annotation_key` | `APP_DELETION_ANNOTATION_KEY` | `naas-api/marked-for-deletion-at` | written on soft delete |
 | `template_dir` | `APP_TEMPLATE_DIR` | `app/templates` | |
 | `managed_label` | `APP_MANAGED_LABEL` | `managed-by=naas-api` | stamped on created resources |
+| `label_key_prefix` | `APP_LABEL_KEY_PREFIX` | `None` | optional DNS-subdomain prefix for caller-supplied label keys |
 | `egressip_api_version` | `APP_EGRESSIP_API_VERSION` | `k8s.ovn.org/v1` | EgressIP CRD group/version |
 | `egressip_kind` | `APP_EGRESSIP_KIND` | `EgressIP` | EgressIP CRD kind |
 | `auth_module` | `APP_AUTH_MODULE` | `basic` | selects the active auth module |
@@ -148,9 +149,17 @@ an HTTP status. `QUOTA_NAME` is the fixed name of the managed `ResourceQuota`.
 
 Methods:
 
-- **`create_namespace(name, limits)`** — renders `namespace.yaml.j2`, creates the
-  namespace (a `409` becomes `NamespaceError(..., 409)`), then `apply_quota`.
+- **`create_namespace(name, limits, labels=None)`** — renders `namespace.yaml.j2`,
+  creates the namespace (a `409` becomes `NamespaceError(..., 409)`), then
+  `apply_quota` with the **same (already-prefixed) labels**, so the quota
+  inherits them.
+- **`prefixed_labels(labels)`** — applies `label_key_prefix` to caller keys
+  (`{env: prod}` → `{company.example.io/env: prod}`). Keys already containing `/`
+  are left alone (K8s allows one prefix per key); no prefix configured → verbatim.
+  The `managed-by` label is never prefixed — the cache's label selector depends
+  on it.
 - **`update_quota(name, limits)`** — `require_namespace` then `apply_quota`.
+  Passes no labels; since the quota is **merge-patched**, existing labels survive.
 - **`mark_for_deletion(name)`** — *soft delete*. Patches the namespace with an
   annotation `deletion_annotation_key = <UTC ISO timestamp>`. Nothing is removed.
 - **`force_delete(name)`** — `delete_all_resources` then `delete_namespace`

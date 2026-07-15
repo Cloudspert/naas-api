@@ -18,6 +18,9 @@ config:
   deletionAnnotationKey: "naas-api/marked-for-deletion-at"
   # Label stamped onto every resource the API creates.
   managedLabel: "managed-by=naas-api"
+  # Optional key prefix for caller-supplied labels, e.g. "company.example.io"
+  # turns {env: prod} into {company.example.io/env: prod}. Empty = verbatim keys.
+  labelKeyPrefix: ""
   # Active authentication module.
   authModule: basic
 

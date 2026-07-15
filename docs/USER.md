@@ -74,12 +74,23 @@ Creates a namespace and applies a `ResourceQuota`.
 | `limits.memory`  | string | no       | Memory quota.                                            |
 | `limits.cpu`     | string | no       | CPU quota.                                               |
 | `limits.storage` | string | no       | Storage request quota.                                   |
+| `labels`         | object | no       | Extra labels for the namespace — **also inherited by its ResourceQuota**. |
 
 ```bash
 curl -u admin:pw -X POST https://<host>/api/v1/namespaces \
   -H 'Content-Type: application/json' \
-  -d '{"name":"team-a","limits":{"memory":"8Gi","cpu":"4","storage":"50Gi"}}'
+  -d '{"name":"team-a",
+       "limits":{"memory":"8Gi","cpu":"4","storage":"50Gi"},
+       "labels":{"env":"prod","team":"payments"}}'
 ```
+
+> **Label key prefix.** If the server is configured with a label key prefix
+> (`APP_LABEL_KEY_PREFIX`, e.g. `company.example.io`), your label keys are
+> namespaced automatically: sending `"env": "prod"` stores
+> `company.example.io/env: prod`. Keys that already contain a `/` are left as-is
+> (Kubernetes allows only one prefix per key), and the server's own
+> `managed-by` label is never prefixed. With no prefix configured, your keys are
+> used verbatim.
 
 **`201 Created`**
 

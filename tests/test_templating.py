@@ -25,11 +25,31 @@ def test_quota_only_memory_renders_only_memory_keys():
         namespace="team-a",
         managed_label_key="managed-by",
         managed_label_value="naas-api",
+        extra_labels=None,
         memory="16Gi",
         cpu=None,
         storage=None,
     )
     assert manifest["spec"]["hard"] == {"requests.memory": "16Gi", "limits.memory": "16Gi"}
+    assert manifest["metadata"]["labels"] == {"managed-by": "naas-api"}
+
+
+def test_quota_renders_inherited_labels():
+    manifest = render_manifest(
+        "resourcequota.yaml.j2",
+        quota_name="naas-api-quota",
+        namespace="team-a",
+        managed_label_key="managed-by",
+        managed_label_value="naas-api",
+        extra_labels={"company.example.io/env": "prod"},
+        memory="16Gi",
+        cpu=None,
+        storage=None,
+    )
+    assert manifest["metadata"]["labels"] == {
+        "managed-by": "naas-api",
+        "company.example.io/env": "prod",
+    }
 
 
 def test_quota_all_dimensions_are_strings():
@@ -39,6 +59,7 @@ def test_quota_all_dimensions_are_strings():
         namespace="team-a",
         managed_label_key="managed-by",
         managed_label_value="naas-api",
+        extra_labels=None,
         memory="8Gi",
         cpu="4",
         storage="50Gi",

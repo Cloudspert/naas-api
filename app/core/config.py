@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     template_dir: str = str(Path(__file__).resolve().parents[1] / "templates")
     # Label stamped on created resources, as "key=value".
     managed_label: str = "managed-by=naas-api"
+    # Optional key prefix (DNS subdomain) for caller-supplied labels, e.g.
+    # "company.example.io" turns {env: prod} into {company.example.io/env: prod}.
+    # Left null/empty -> caller keys are used verbatim.
+    label_key_prefix: Optional[str] = None
 
     # EgressIP CRD coordinates (configurable per platform).
     egressip_api_version: str = "k8s.ovn.org/v1"

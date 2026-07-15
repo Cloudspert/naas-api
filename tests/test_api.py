@@ -73,6 +73,26 @@ def test_create_bare_numbers_get_gi_suffix(client):
     assert hard["requests.cpu"] == "4"  # cpu untouched
 
 
+def test_create_with_labels(client):
+    test_client, fake = client
+    resp = test_client.post(
+        BASE,
+        json={
+            "name": "team-a",
+            "limits": {"memory": "8Gi"},
+            "labels": {"env": "prod", "team": "payments"},
+        },
+        auth=AUTH,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["details"]["labels"] == {"env": "prod", "team": "payments"}
+    ns_labels = fake.core_v1.namespaces["team-a"].metadata.labels
+    assert ns_labels["env"] == "prod"
+    # Inherited by the quota too.
+    quota_labels = fake.core_v1.quotas[("team-a", "naas-api-quota")]["metadata"]["labels"]
+    assert quota_labels["env"] == "prod"
+
+
 def test_create_duplicate_returns_409(client):
     test_client, fake = client
     fake.core_v1.namespaces["team-a"] = _Namespace("team-a")

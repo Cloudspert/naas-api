@@ -5,6 +5,11 @@ metadata:
   namespace: {{ namespace }}
   labels:
     {{ managed_label_key }}: "{{ managed_label_value }}"
+{% if extra_labels %}
+{% for k, v in extra_labels.items() %}
+    {{ k }}: "{{ v }}"
+{% endfor %}
+{% endif %}
 spec:
   hard:
 {% if memory %}

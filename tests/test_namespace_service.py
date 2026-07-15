@@ -9,12 +9,13 @@ from tests.fakes import FakeK8sClient, _Namespace
 ANNOTATION = "naas-api/marked-for-deletion-at"
 
 
-def _manager(fake):
+def _manager(fake, label_key_prefix=None):
     return NamespaceManager(
         k8s=fake,
         managed_label_key="managed-by",
         managed_label_value="naas-api",
         deletion_annotation_key=ANNOTATION,
+        label_key_prefix=label_key_prefix,
     )
 
 
@@ -45,6 +46,61 @@ def test_create_without_limits_skips_quota():
     fake = FakeK8sClient()
     _manager(fake).create_namespace("team-a", ResourceLimits())
     assert fake.core_v1.quotas == {}
+
+
+# --- labels + key prefix ----------------------------------------------------
+def test_create_labels_applied_to_namespace_and_inherited_by_quota():
+    fake = FakeK8sClient()
+    _manager(fake).create_namespace(
+        "team-a", ResourceLimits(memory="8Gi"), labels={"env": "prod", "team": "payments"}
+    )
+
+    ns_labels = fake.core_v1.namespaces["team-a"].metadata.labels
+    assert ns_labels["env"] == "prod"
+    assert ns_labels["team"] == "payments"
+    assert ns_labels["managed-by"] == "naas-api"  # managed label still there
+
+    quota_labels = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["metadata"]["labels"]
+    assert quota_labels["env"] == "prod"  # inherited
+    assert quota_labels["team"] == "payments"
+    assert quota_labels["managed-by"] == "naas-api"
+
+
+def test_create_labels_get_configured_key_prefix():
+    fake = FakeK8sClient()
+    result = _manager(fake, label_key_prefix="company.example.io").create_namespace(
+        "team-a", ResourceLimits(memory="8Gi"), labels={"env": "prod"}
+    )
+
+    assert result["labels"] == {"company.example.io/env": "prod"}
+    ns_labels = fake.core_v1.namespaces["team-a"].metadata.labels
+    assert ns_labels["company.example.io/env"] == "prod"
+    assert "env" not in ns_labels
+    quota_labels = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["metadata"]["labels"]
+    assert quota_labels["company.example.io/env"] == "prod"
+    # The managed label is never prefixed (the cache selector depends on it).
+    assert ns_labels["managed-by"] == "naas-api"
+
+
+def test_key_that_already_has_a_prefix_is_not_double_prefixed():
+    fake = FakeK8sClient()
+    result = _manager(fake, label_key_prefix="company.example.io").create_namespace(
+        "team-a", ResourceLimits(), labels={"other.io/env": "prod", "team": "x"}
+    )
+    assert result["labels"] == {"other.io/env": "prod", "company.example.io/team": "x"}
+
+
+def test_no_prefix_configured_keeps_keys_verbatim():
+    fake = FakeK8sClient()
+    result = _manager(fake).create_namespace("team-a", ResourceLimits(), labels={"env": "prod"})
+    assert result["labels"] == {"env": "prod"}
+
+
+def test_create_without_labels_still_works():
+    fake = FakeK8sClient()
+    result = _manager(fake).create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    assert result["labels"] == {}
+    assert fake.core_v1.namespaces["team-a"].metadata.labels == {"managed-by": "naas-api"}
 
 
 def test_namespace_exists_true_and_false():

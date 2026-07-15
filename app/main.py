@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
         managed_label_key=settings.managed_label_key,
         managed_label_value=settings.managed_label_value,
         deletion_annotation_key=settings.deletion_annotation_key,
+        label_key_prefix=settings.label_key_prefix,
     )
     app.state.cache = NamespaceCache(
         k8s=k8s,
