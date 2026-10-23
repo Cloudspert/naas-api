@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.api.deps import require_auth, run
+from app.api.deps import parse_labels, require_auth, run
 from app.models import (
     CreateEgressIPRequest,
     EgressIPListResponse,
@@ -17,20 +17,6 @@ router = APIRouter(prefix="/api/v1/egressips", tags=["egressips"])
 
 def get_egress_manager(request: Request):
     return request.app.state.egress_manager
-
-
-def parse_labels(raw: Optional[str]) -> dict:
-    """Parse a 'k=v,k2=v2' label filter into a dict."""
-    result = {}
-    for part in (raw or "").split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "=" not in part:
-            raise HTTPException(status_code=422, detail=f"invalid label '{part}', expected key=value")
-        key, value = part.split("=", 1)
-        result[key.strip()] = value.strip()
-    return result
 
 
 @router.post("", response_model=EgressIPSummary, status_code=201,

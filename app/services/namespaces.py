@@ -7,10 +7,21 @@ from kubernetes.client.exceptions import ApiException
 
 from app.core.errors import ApiError
 from app.k8s.render import render_manifest
+from app.models import ResourceLimits
 
 logger = logging.getLogger(__name__)
 
 QUOTA_NAME = "naas-api-quota"
+MIN_CPU = 1  # the CPU quota is never floored below this (whole cores)
+
+
+def _gi_to_int(value) -> int:
+    """'8Gi' -> 8. Inputs are integer Gi by contract."""
+    return int(str(value).removesuffix("Gi"))
+
+
+def _int_to_gi(value: int) -> str:
+    return f"{value}Gi"
 
 
 class NamespaceError(ApiError):
@@ -63,10 +74,33 @@ class NamespaceManager:
             "annotations": extra_annotations,
         }
 
-    def update_quota(self, name, limits):
+    def update_quota(self, name, delta):
+        """Add signed deltas to the current quota (only supplied dimensions)."""
         self.require_namespace(name)
-        quota = self.apply_quota(name, limits)
-        logger.info("event=quota_updated namespace=%s quota=%s", name, quota)
+        hard = self.current_hard(name)
+
+        absolute = {}
+        if delta.memory is not None:
+            result = _gi_to_int(hard.get("requests.memory", "0Gi")) + _gi_to_int(delta.memory)
+            if result < 0:
+                raise NamespaceError("memory would drop below zero", 422)
+            absolute["memory"] = _int_to_gi(result)
+        if delta.storage is not None:
+            result = _gi_to_int(hard.get("requests.storage", "0Gi")) + _gi_to_int(delta.storage)
+            if result < 0:
+                raise NamespaceError("storage would drop below zero", 422)
+            absolute["storage"] = _int_to_gi(result)
+        if delta.cpu is not None:
+            # cpu is floored at MIN_CPU in apply_quota, so no below-zero check.
+            absolute["cpu"] = str(int(hard.get("requests.cpu", "0") or 0) + delta.cpu)
+        if delta.pvc_count is not None:
+            result = int(hard.get("persistentvolumeclaims", "0") or 0) + delta.pvc_count
+            if result < 0:
+                raise NamespaceError("pvc_count would drop below zero", 422)
+            absolute["pvc_count"] = result
+
+        quota = self.apply_quota(name, ResourceLimits(**absolute))
+        logger.info("event=quota_updated namespace=%s delta=%s quota=%s", name, absolute, quota)
         return {"namespace": name, "quota": quota}
 
     def mark_for_deletion(self, name):
@@ -131,6 +165,14 @@ class NamespaceManager:
         if limits.is_empty():
             return {}
 
+        cpu = limits.cpu
+        if cpu is not None:
+            # 1-core floor (whole integer cores) — the one enforcement point.
+            try:
+                cpu = str(max(MIN_CPU, int(cpu)))
+            except ValueError:
+                pass  # non-integer cpu left untouched (shouldn't happen per contract)
+
         manifest = render_manifest(
             "resourcequota.yaml.j2",
             quota_name=QUOTA_NAME,
@@ -139,8 +181,9 @@ class NamespaceManager:
             managed_label_value=self.managed_label_value,
             extra_labels=labels or None,
             memory=limits.memory,
-            cpu=limits.cpu,
+            cpu=cpu,
             storage=limits.storage,
+            pvc_count=limits.pvc_count,
         )
         try:
             if self.read_quota(namespace) is None:
@@ -164,6 +207,14 @@ class NamespaceManager:
             if exc.status == 404:
                 return None
             raise
+
+    def current_hard(self, namespace) -> dict:
+        """The current quota's spec.hard (empty when no quota exists yet)."""
+        quota = self.read_quota(namespace)
+        if quota is None:
+            return {}
+        spec = quota.get("spec") or {}
+        return spec.get("hard") or {}
 
     def delete_all_resources(self, namespace):
         """Delete every namespaced resource (core + CRD) in the namespace."""

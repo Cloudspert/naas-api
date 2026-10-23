@@ -19,6 +19,9 @@ update quotas, and delete (soft-mark or force).
 - **[docs/design/egressip-endpoints.md](docs/design/egressip-endpoints.md)** —
   design (not yet implemented) for per-ecosystem EgressIP create/delete/get
   endpoints.
+- **[docs/design/nodes-and-quota-changes.md](docs/design/nodes-and-quota-changes.md)**
+  — design (not yet implemented) for node list/get endpoints, delta-based quota
+  updates, and an optional PVC-count quota.
 - **Swagger UI** at `/docs` — the **Authorize** button is wired to the *active*
   auth module (HTTP Basic by default), so "Try it out" calls are authenticated.
 
@@ -29,12 +32,14 @@ update quotas, and delete (soft-mark or force).
 | `POST`   | `/api/v1/namespaces`                  | Create a namespace with quotas (`memory`, `cpu`, `storage` — any subset).         |
 | `GET`    | `/api/v1/namespaces`                  | List namespaces carrying the configured label (served from cache).          |
 | `GET`    | `/api/v1/namespaces/{name}/status`    | Report whether a namespace exists.                                          |
-| `PATCH`  | `/api/v1/namespaces/{name}/quota`     | Update quotas; only supplied dimensions change.                             |
+| `PATCH`  | `/api/v1/namespaces/{name}/quota`     | Adjust quotas by a **delta** (how much to add, ±); only supplied dimensions. |
 | `DELETE` | `/api/v1/namespaces/{name}`           | Mark for deletion (annotation). `?force=true` deletes all resources + ns.   |
 | `POST`   | `/api/v1/egressips`                   | Create an EgressIP (label-selected namespaces/pods, fixed egress IPs).      |
 | `GET`    | `/api/v1/egressips`                   | List EgressIPs, optional `?labels=k=v` filter.                             |
 | `GET`    | `/api/v1/egressips/{name}`            | Get a single EgressIP.                                                      |
 | `DELETE` | `/api/v1/egressips/{name}`            | Delete an EgressIP.                                                         |
+| `GET`    | `/api/v1/nodes`                       | List cluster nodes (served from cache), optional `?labels=k=v`.            |
+| `GET`    | `/api/v1/nodes/{name}`                | Get a node (labels, IPs, capacity, …).                                     |
 | `GET`    | `/healthz`, `/readyz`                 | Probes.                                                                      |
 | `GET`    | `/docs`                               | Swagger UI.                                                                  |
 

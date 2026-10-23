@@ -49,6 +49,7 @@ def test_quota_only_memory_renders_only_memory_keys():
         memory="16Gi",
         cpu=None,
         storage=None,
+        pvc_count=None,
     )
     assert manifest["spec"]["hard"] == {"requests.memory": "16Gi", "limits.memory": "16Gi"}
     assert manifest["metadata"]["labels"] == {"managed-by": "naas-api"}
@@ -65,6 +66,7 @@ def test_quota_renders_inherited_labels():
         memory="16Gi",
         cpu=None,
         storage=None,
+        pvc_count=None,
     )
     assert manifest["metadata"]["labels"] == {
         "managed-by": "naas-api",
@@ -83,12 +85,37 @@ def test_quota_all_dimensions_are_strings():
         memory="8Gi",
         cpu="4",
         storage="50Gi",
+        pvc_count=None,
     )
     hard = manifest["spec"]["hard"]
     # CPU must stay a string, not be parsed as a YAML int.
     assert hard["requests.cpu"] == "4"
     assert isinstance(hard["requests.cpu"], str)
     assert hard["requests.storage"] == "50Gi"
+    assert "persistentvolumeclaims" not in hard
+
+
+def _quota(**over):
+    ctx = dict(
+        quota_name="naas-api-quota", namespace="team-a",
+        managed_label_key="managed-by", managed_label_value="naas-api",
+        extra_labels=None, memory=None, cpu=None, storage=None, pvc_count=None,
+    )
+    ctx.update(over)
+    return render_manifest("resourcequota.yaml.j2", **ctx)["spec"]["hard"]
+
+
+def test_quota_renders_pvc_count():
+    assert _quota(pvc_count=10)["persistentvolumeclaims"] == "10"
+
+
+def test_quota_pvc_count_zero_is_rendered():
+    # is-not-none, not truthiness: 0 ("no PVCs allowed") must still render.
+    assert _quota(pvc_count=0)["persistentvolumeclaims"] == "0"
+
+
+def test_quota_pvc_count_omitted_absent():
+    assert "persistentvolumeclaims" not in _quota(memory="8Gi")
 
 
 def test_missing_variable_raises():

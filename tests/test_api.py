@@ -7,9 +7,10 @@ in-memory fake cluster injected by the ``client`` fixture.
 from __future__ import annotations
 
 from tests.conftest import AUTH
-from tests.fakes import _Namespace
+from tests.fakes import _Namespace, _Node
 
 BASE = "/api/v1/namespaces"
+NODES = "/api/v1/nodes"
 
 
 # ---------------------------------------------------------------- health / docs
@@ -177,18 +178,28 @@ def test_list_namespaces_served_from_cache(client):
 
 
 # ----------------------------------------------------------------- update quota
-def test_update_quota_only_memory(client):
+def test_update_quota_adds_delta(client):
     test_client, fake = client
     test_client.post(
-        BASE, json={"name": "team-a", "limits": {"memory": "8Gi", "cpu": "4"}}, auth=AUTH
+        BASE, json={"name": "team-a", "limits": {"memory": "8", "cpu": "4"}}, auth=AUTH
     )
+    # delta: +8Gi memory, cpu untouched
     resp = test_client.patch(
-        f"{BASE}/team-a/quota", json={"limits": {"memory": "16Gi"}}, auth=AUTH
+        f"{BASE}/team-a/quota", json={"limits": {"memory": "8"}}, auth=AUTH
     )
     assert resp.status_code == 200
     hard = fake.core_v1.quotas[("team-a", "naas-api-quota")]["spec"]["hard"]
-    assert hard["requests.memory"] == "16Gi"
+    assert hard["requests.memory"] == "16Gi"  # 8 + 8
     assert hard["requests.cpu"] == "4"
+
+
+def test_update_quota_negative_below_zero_422(client):
+    test_client, _ = client
+    test_client.post(BASE, json={"name": "team-a", "limits": {"memory": "8"}}, auth=AUTH)
+    resp = test_client.patch(
+        f"{BASE}/team-a/quota", json={"limits": {"memory": "-20"}}, auth=AUTH
+    )
+    assert resp.status_code == 422
 
 
 def test_update_quota_empty_payload_returns_422(client):
@@ -200,7 +211,7 @@ def test_update_quota_empty_payload_returns_422(client):
 def test_update_quota_missing_namespace_404(client):
     test_client, _ = client
     resp = test_client.patch(
-        f"{BASE}/ghost/quota", json={"limits": {"memory": "1Gi"}}, auth=AUTH
+        f"{BASE}/ghost/quota", json={"limits": {"memory": "1"}}, auth=AUTH
     )
     assert resp.status_code == 404
 
@@ -232,3 +243,57 @@ def test_delete_missing_namespace_404(client):
     test_client, _ = client
     resp = test_client.delete(f"{BASE}/ghost", auth=AUTH)
     assert resp.status_code == 404
+
+
+# ------------------------------------------------------------------------ nodes
+def _seed_nodes(test_client, fake):
+    fake.core_v1.nodes = {
+        "worker-1": _Node("worker-1", roles=["worker"], internal_ip="10.0.0.11"),
+        "cp-1": _Node("cp-1", roles=["control-plane"], internal_ip="10.0.0.5"),
+    }
+    test_client.app.state.node_cache.refresh()
+
+
+def test_list_nodes(client):
+    test_client, fake = client
+    _seed_nodes(test_client, fake)
+    resp = test_client.get(NODES, auth=AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 2
+    names = {n["name"] for n in body["items"]}
+    assert names == {"worker-1", "cp-1"}
+    # summary carries roles + internal_ip, and NOT the detail-only fields.
+    worker = next(n for n in body["items"] if n["name"] == "worker-1")
+    assert worker["roles"] == ["worker"]
+    assert worker["internal_ip"] == "10.0.0.11"
+    assert "capacity" not in worker
+
+
+def test_list_nodes_label_filter(client):
+    test_client, fake = client
+    _seed_nodes(test_client, fake)
+    resp = test_client.get(f"{NODES}?labels=node-role.kubernetes.io/worker=", auth=AUTH)
+    assert resp.status_code == 200
+    assert {n["name"] for n in resp.json()["items"]} == {"worker-1"}
+
+
+def test_get_node(client):
+    test_client, fake = client
+    _seed_nodes(test_client, fake)
+    resp = test_client.get(f"{NODES}/worker-1", auth=AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "worker-1"
+    assert body["addresses"]["InternalIP"] == "10.0.0.11"  # detail field
+
+
+def test_get_node_missing_404(client):
+    test_client, _ = client
+    resp = test_client.get(f"{NODES}/ghost", auth=AUTH)
+    assert resp.status_code == 404
+
+
+def test_nodes_require_auth(client):
+    test_client, _ = client
+    assert test_client.get(NODES).status_code == 401

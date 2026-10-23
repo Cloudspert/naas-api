@@ -37,11 +37,73 @@ class _ListResult:
         self.items = items
 
 
+# --------------------------------------------------------------------- nodes
+class _NodeAddress:
+    def __init__(self, type, address):
+        self.type = type
+        self.address = address
+
+
+class _NodeCondition:
+    def __init__(self, type, status):
+        self.type = type
+        self.status = status
+
+
+class _NodeInfo:
+    def __init__(self, kubelet_version=None, os_image=None, architecture=None):
+        self.kubelet_version = kubelet_version
+        self.os_image = os_image
+        self.architecture = architecture
+
+
+class _NodeStatus:
+    def __init__(self, addresses=None, conditions=None, capacity=None, allocatable=None,
+                 node_info=None):
+        self.addresses = addresses or []
+        self.conditions = conditions or []
+        self.capacity = capacity or {}
+        self.allocatable = allocatable or {}
+        self.node_info = node_info
+
+
+class _NodeSpec:
+    def __init__(self, unschedulable=False):
+        self.unschedulable = unschedulable
+
+
+class _Node:
+    def __init__(self, name, labels=None, annotations=None, ready=True, roles=(),
+                 internal_ip=None, unschedulable=False, capacity=None, allocatable=None,
+                 kubelet_version=None, os_image=None, architecture=None):
+        labels = dict(labels or {})
+        for role in roles:
+            labels[f"node-role.kubernetes.io/{role}"] = ""
+        addresses = []
+        if internal_ip:
+            addresses.append(_NodeAddress("InternalIP", internal_ip))
+        addresses.append(_NodeAddress("Hostname", name))
+        self.metadata = _Meta(name, labels, annotations)
+        self.spec = _NodeSpec(unschedulable=unschedulable)
+        self.status = _NodeStatus(
+            addresses=addresses,
+            conditions=[_NodeCondition("Ready", "True" if ready else "False")],
+            capacity=capacity or {},
+            allocatable=allocatable or {},
+            node_info=_NodeInfo(kubelet_version, os_image, architecture),
+        )
+
+
 # ------------------------------------------------------------------ CoreV1 API
 class FakeCoreV1:
     def __init__(self) -> None:
         self.namespaces: Dict[str, _Namespace] = {}
         self.quotas: Dict[Tuple[str, str], dict] = {}
+        self.nodes: Dict[str, _Node] = {}
+
+    # nodes --------------------------------------------------------------------
+    def list_node(self, label_selector: Optional[str] = None) -> _ListResult:
+        return _ListResult(list(self.nodes.values()))
 
     # namespaces ---------------------------------------------------------------
     def create_namespace(self, body: dict) -> _Namespace:

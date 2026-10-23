@@ -15,6 +15,7 @@ This guide covers **how to call the API**. For internals see
 |-----------------|---------------------|
 | Namespaces      | `/api/v1/namespaces` |
 | EgressIPs       | `/api/v1/egressips` |
+| Nodes           | `/api/v1/nodes` |
 | Swagger UI      | `/docs`             |
 | ReDoc           | `/redoc`            |
 | OpenAPI schema  | `/openapi.json`     |
@@ -71,9 +72,10 @@ Creates a namespace and applies a `ResourceQuota`.
 | Field            | Type   | Required | Description                                              |
 |------------------|--------|----------|----------------------------------------------------------|
 | `name`           | string | yes      | Namespace name. RFC 1123 label: lowercase alphanumeric and `-`, ≤ 63 chars. |
-| `limits.memory`  | string | no       | Memory quota.                                            |
-| `limits.cpu`     | string | no       | CPU quota.                                               |
-| `limits.storage` | string | no       | Storage request quota.                                   |
+| `limits.memory`  | string/int | no   | Memory quota (bare number → `Gi`). Floored? no. |
+| `limits.cpu`     | string/int | no   | CPU quota in whole cores — **floored at 1**.    |
+| `limits.storage` | string/int | no   | Storage request quota (bare number → `Gi`).     |
+| `limits.pvc_count` | int    | no       | Max number of PVCs (`persistentvolumeclaims`). Only applied when sent (`0` = none allowed). |
 | `labels`         | object | no       | Extra labels for the namespace — **also inherited by its ResourceQuota**. |
 | `annotations`    | object | no       | Free-form annotations on the namespace (contact email/DL, owner, …). Namespace-level only. |
 
@@ -178,28 +180,34 @@ curl -u admin:pw https://<host>/api/v1/namespaces/team-a/status
 
 ---
 
-### 4. Update quotas — `PATCH /api/v1/namespaces/{name}/quota`
+### 4. Update quotas (delta) — `PATCH /api/v1/namespaces/{name}/quota`
 
-Updates the namespace's quota. **Only the dimensions you send change**; the
-others are left intact. At least one dimension is required.
+> **The values here are deltas — how much to ADD, not the new total.** Send a
+> negative number to subtract. Only the dimensions you send change; the rest are
+> left intact. At least one is required.
 
-**Request body**
+**Request body** (all values are plain integers)
 
-| Field            | Type   | Required          | Description       |
-|------------------|--------|-------------------|-------------------|
-| `limits.memory`  | string | at least one of   | New memory quota. |
-| `limits.cpu`     | string | the three         | New CPU quota.    |
-| `limits.storage` | string |                   | New storage quota.|
+| Field            | Type | Required        | Description                                    |
+|------------------|------|-----------------|------------------------------------------------|
+| `limits.memory`  | int  | at least one    | Gi to add (±). `2` → +2Gi.                     |
+| `limits.cpu`     | int  | of the four     | Cores to add (±).                              |
+| `limits.storage` | int  |                 | Gi to add (±).                                 |
+| `limits.pvc_count` | int |                | PVC-count to add (±).                           |
 
 ```bash
-# Change ONLY memory; cpu/storage stay as they were.
+# current memory=8Gi, cpu=4  →  result memory=10Gi, cpu unchanged
 curl -u admin:pw -X PATCH https://<host>/api/v1/namespaces/team-a/quota \
   -H 'Content-Type: application/json' \
-  -d '{"limits":{"memory":"16Gi"}}'
+  -d '{"limits":{"memory":2}}'
 ```
 
-**`200 OK`** — returns the applied quota. Errors: `404` if the namespace does
-not exist, `422` if `limits` is empty.
+- A dimension the quota didn't have yet starts from **0** (so a delta introduces it).
+- **CPU is floored at 1 core** — a delta that would drop it below 1 lands on 1.
+- A memory/storage/pvc result **below 0** → `422` (we never write a negative quota).
+
+**`200 OK`** — returns the new effective quota. Errors: `404` if the namespace
+does not exist, `422` if `limits` is empty or a result would go negative.
 
 ---
 
@@ -321,6 +329,41 @@ curl -u admin:pw -X DELETE https://<host>/api/v1/egressips/payments-web
 ```
 
 `200` on success, `404` if absent. Deleting changes pod egress routing.
+
+---
+
+## Node endpoints
+
+Read-only views of the cluster's nodes, served from an in-memory cache
+refreshed every `APP_CACHE_REFRESH_INTERVAL_SECONDS` (so data may lag reality by
+up to that interval).
+
+### 10. List nodes — `GET /api/v1/nodes`
+
+Optional `?labels=k=v,k2=v2` filter. Returns a light summary per node.
+
+```bash
+curl -u admin:pw "https://<host>/api/v1/nodes?labels=node-role.kubernetes.io/worker="
+```
+
+```json
+{
+  "items": [
+    {"name":"worker-1","ready":true,"roles":["worker"],
+     "internal_ip":"10.0.0.11","labels":{"...":"..."}}
+  ],
+  "count": 1
+}
+```
+
+### 11. Get a node — `GET /api/v1/nodes/{name}`
+
+Fuller detail: all `addresses` (InternalIP, Hostname, …), `capacity`,
+`allocatable`, `unschedulable`, kubelet version, OS/arch. `404` if not found.
+
+```bash
+curl -u admin:pw https://<host>/api/v1/nodes/worker-1
+```
 
 ---
 
