@@ -18,6 +18,10 @@ rules:
   - apiGroups: ["k8s.ovn.org"]
     resources: ["egressips"]
     verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  # Node listing (cluster-scoped, read-only).
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
 {{- if .Values.rbac.allowWildcardForceDelete }}
   # Force-delete needs to enumerate and remove every resource type (incl. CRDs).
   - apiGroups: ["*"]

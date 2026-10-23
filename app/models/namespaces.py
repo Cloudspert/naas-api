@@ -7,23 +7,27 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.models.common import NAME_RE
 
-# A bare number (int or decimal), e.g. "8" or "1.5" — no Kubernetes unit suffix.
-_BARE_NUMBER_RE = re.compile(r"^\d+(\.\d+)?$")
+# A bare number, e.g. "8" — no Kubernetes unit suffix. Inputs are integers.
+_BARE_NUMBER_RE = re.compile(r"^\d+$")
+# A signed bare number for deltas, e.g. "8" or "-2".
+_SIGNED_BARE_RE = re.compile(r"^-?\d+$")
 
 
 class ResourceLimits(BaseModel):
-    # Kubernetes quantity strings, e.g. "4Gi", "2", "500m", "50Gi". All optional
-    # so callers can set only the dimensions they care about.
+    """Absolute quota values (used on create)."""
+
+    # memory/storage are integer Gi; cpu is integer cores; pvc_count is a count.
     memory: Optional[str] = None
     cpu: Optional[str] = None
     storage: Optional[str] = None
+    pvc_count: Optional[int] = None
 
     @field_validator("memory", "storage", mode="before")
     @classmethod
     def default_gi_suffix(cls, value):
         # A bare number for memory/storage gets a "Gi" suffix (e.g. 8 -> "8Gi").
-        # Values that already carry a unit (8Gi, 512Mi, ...) are left untouched.
-        # CPU is never touched (a bare number there means whole cores).
+        # Values that already carry a unit (8Gi, ...) are left untouched.
+        # CPU and pvc_count are never touched.
         if value is None:
             return None
         text = str(value).strip()
@@ -32,7 +36,44 @@ class ResourceLimits(BaseModel):
         return text
 
     def is_empty(self) -> bool:
-        return self.memory is None and self.cpu is None and self.storage is None
+        return (
+            self.memory is None
+            and self.cpu is None
+            and self.storage is None
+            and self.pvc_count is None
+        )
+
+
+class QuotaDelta(BaseModel):
+    """Signed deltas added to the current quota (used on update).
+
+    memory/storage are integer Gi (±), cpu is integer cores (±), pvc_count is a
+    count (±). At least one field must be set. A negative result is rejected
+    (422) by the service, except cpu which is floored at 1 core.
+    """
+
+    memory: Optional[str] = None
+    cpu: Optional[int] = None
+    storage: Optional[str] = None
+    pvc_count: Optional[int] = None
+
+    @field_validator("memory", "storage", mode="before")
+    @classmethod
+    def default_gi_suffix(cls, value):
+        if value is None:
+            return None
+        text = str(value).strip()
+        if _SIGNED_BARE_RE.match(text):  # bare (signed) number -> Gi
+            return f"{text}Gi"
+        return text
+
+    def is_empty(self) -> bool:
+        return (
+            self.memory is None
+            and self.cpu is None
+            and self.storage is None
+            and self.pvc_count is None
+        )
 
 
 class CreateNamespaceRequest(BaseModel):
@@ -58,13 +99,14 @@ class CreateNamespaceRequest(BaseModel):
 
 
 class UpdateQuotaRequest(BaseModel):
-    limits: ResourceLimits
+    # limits here are DELTAS added to the current quota, not absolute values.
+    limits: QuotaDelta
 
     @field_validator("limits")
     @classmethod
     def not_empty(cls, value):
         if value.is_empty():
-            raise ValueError("at least one of memory, cpu, storage must be provided")
+            raise ValueError("at least one of memory, cpu, storage, pvc_count must be provided")
         return value
 
 

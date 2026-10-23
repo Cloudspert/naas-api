@@ -15,6 +15,8 @@ from app.k8s.client import K8sClient
 from app.services.cache import NamespaceCache
 from app.services.egressips import EgressIPManager
 from app.services.namespaces import NamespaceManager
+from app.services.node_cache import NodeCache
+from app.services.nodes import NodeManager
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 
@@ -67,9 +69,14 @@ async def lifespan(app: FastAPI):
         managed_label_key=settings.managed_label_key,
         managed_label_value=settings.managed_label_value,
     )
+    app.state.node_cache = NodeCache(
+        node_manager=NodeManager(k8s=k8s),
+        refresh_interval=settings.cache_refresh_interval_seconds,
+    )
     app.state.auth = build_auth(settings)
 
     app.state.cache.start()
+    app.state.node_cache.start()
     logging.getLogger("app").info(
         "%s v%s started (auth=%s)", settings.app_name, __version__, settings.auth_module
     )
@@ -77,6 +84,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         app.state.cache.stop()
+        app.state.node_cache.stop()
 
 
 def build_openapi(app: FastAPI):
@@ -112,7 +120,8 @@ def create_app():
     @app.get("/readyz", tags=["health"], summary="Readiness probe")
     def readyz():
         _, cached_at = app.state.cache.get()
-        return {"status": "ok" if cached_at else "warming", "cached_at": cached_at}
+        ready = bool(cached_at) and app.state.node_cache.ready()
+        return {"status": "ok" if ready else "warming", "cached_at": cached_at}
 
     app.include_router(api_router)
     app.openapi = build_openapi(app)

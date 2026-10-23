@@ -23,3 +23,6 @@ spec:
 {% if storage %}
     requests.storage: "{{ storage }}"
 {% endif %}
+{% if pvc_count is not none %}
+    persistentvolumeclaims: "{{ pvc_count }}"
+{% endif %}

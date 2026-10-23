@@ -35,19 +35,23 @@ app/
     client.py          K8sClient: SA/kubeconfig loader, CoreV1 + DynamicClient
     render.py          render_manifest() (Jinja2 -> dict)
   services/
-    namespaces.py      NamespaceManager: create / update-quota / mark / force-delete
+    namespaces.py      NamespaceManager: create / update-quota (delta) / mark / force-delete
     egressips.py       EgressIPManager: create / delete / get / list (dynamic client)
+    nodes.py           NodeManager: fetch + shape cluster nodes (read-only)
     cache.py           NamespaceCache: labelled-namespace cache + refresher thread
+    node_cache.py      NodeCache: node cache + refresher thread (reuses global interval)
   models/
     common.py          NAME_RE, MessageResponse
-    namespaces.py      namespace request/response models
+    namespaces.py      namespace models + ResourceLimits / QuotaDelta
     egressips.py       EgressIP request/response models
+    nodes.py           NodeSummary, NodeDetail, NodeListResponse
     __init__.py        re-exports all models
   api/
-    deps.py            get_manager / get_cache / require_auth / run
+    deps.py            get_manager / get_cache / require_auth / run / parse_labels
     namespaces.py      namespace routes
     egressips.py       EgressIP routes
-    __init__.py        api_router aggregating both route modules
+    nodes.py           node routes (served from NodeCache)
+    __init__.py        api_router aggregating the route modules
   templates/*.j2       Namespace + ResourceQuota + EgressIP manifests
 tests/                 unit + functional tests (see §11)
 helm/naas-api/         chart (see §12)
@@ -165,8 +169,13 @@ Methods:
 > alphanumerics/`-_.`, so an email (`@`) is not a legal label value. Annotations
 > take arbitrary strings. The cache surfaces them in `NamespaceSummary`, so the
 > list endpoint returns them.
-- **`update_quota(name, limits)`** — `require_namespace` then `apply_quota`.
-  Passes no labels; since the quota is **merge-patched**, existing labels survive.
+- **`update_quota(name, delta)`** — the body is a **`QuotaDelta`** (how much to
+  add, ±), not absolute values. Reads the current `spec.hard` (`current_hard`),
+  adds each supplied delta (base 0 for a dimension the quota didn't have), and
+  calls `apply_quota` with the computed absolutes. memory/storage are integer
+  `Gi` (strip `Gi` → int + delta → `<sum>Gi`), cpu/pvc are integers. A
+  memory/storage/pvc result **< 0 → 422**; cpu is instead floored at 1 in
+  `apply_quota`. No `kubernetes.utils.parse_quantity` — inputs are integers.
 - **`mark_for_deletion(name)`** — *soft delete*. Patches the namespace with an
   annotation `deletion_annotation_key = <UTC ISO timestamp>`. Nothing is removed.
 - **`force_delete(name)`** — `delete_all_resources` then `delete_namespace`
@@ -178,7 +187,8 @@ Methods:
   Otherwise renders `resourcequota.yaml.j2` with only the supplied dimensions,
   then `read_quota`: **404 → create**, else **merge-patch**. Because the manifest
   only contains the supplied `hard` keys, the merge changes just those and leaves
-  the rest — this is what makes "update only memory" work.
+  the rest. Applies the **1-core CPU floor** here (one enforcement point), and
+  renders `pvc_count` → `persistentvolumeclaims` (only when set; `0` renders).
 - **`delete_all_resources(namespace)`** — for each `(api_version, kind)` from
   `namespaced_kinds()`, list and delete each object, collecting `"Kind/name"`.
   Per-item failures are logged and skipped (best-effort).
@@ -229,6 +239,21 @@ Manages OpenShift `EgressIP` (cluster-scoped OVN-Kubernetes CRD) via the
 - `list(labels)` builds a metadata label selector `managed-by=…[,k=v…]`.
 - Errors raise `EgressIPError` (an `ApiError`), mapped to HTTP by `run()`.
 - Design: [design/egressip-endpoints.md](design/egressip-endpoints.md).
+
+### 5.5 `services/nodes.py` + `node_cache.py` — nodes
+
+- **`NodeManager(k8s)`** — read-only. `fetch_all()` lists nodes (`core_v1.list_node`,
+  cluster-scoped) and `_detail(node)` shapes each into a `NodeDetail` (ready from
+  the `Ready` condition, roles from `node-role.kubernetes.io/*` labels, addresses
+  collapsed to `{type: addr}`, capacity/allocatable, kubelet version, …).
+- **`NodeCache(node_manager, refresh_interval)`** — mirrors `NamespaceCache`:
+  warms synchronously, then a daemon thread refreshes every
+  `cache_refresh_interval_seconds` (the **global** interval — no node-specific
+  setting). Holds `NodeDetail` keyed by name; `list(labels)` filters in-memory,
+  `get(name)` returns the detail or `None`, `ready()` gates `/readyz`.
+- Both node endpoints are served from the cache; the `get` route turns a cache
+  miss into `404`.
+- Design: [design/nodes-and-quota-changes.md](design/nodes-and-quota-changes.md).
 
 ---
 
@@ -292,22 +317,23 @@ Swagger pick it up automatically.
 - **`run(func)`** — runs a manager call and converts any `ApiError`
   (`NamespaceError` / `EgressIPError`) → `HTTPException(status_code)`.
 
-### Routers (`namespaces.py`, `egressips.py`, `__init__.py`)
-`namespaces.py` (prefix `/api/v1/namespaces`) and `egressips.py`
-(`/api/v1/egressips`); `__init__.py` builds `api_router` including both, and
-`main` mounts that single router.
+### Routers (`namespaces.py`, `egressips.py`, `nodes.py`, `__init__.py`)
+One module per resource; `__init__.py` builds `api_router` including all three,
+and `main` mounts that single router.
 
 | Function | Method/path | Notes |
 |----------|-------------|-------|
 | `create_namespace` | `POST /namespaces` | `201`; body `CreateNamespaceRequest`. |
 | `list_namespaces` | `GET /namespaces` | from the cache (no live call). |
 | `namespace_status` | `GET /namespaces/{name}/status` | live existence; `{exists: bool}`. |
-| `update_quota` | `PATCH /namespaces/{name}/quota` | body `UpdateQuotaRequest`. |
+| `update_quota` | `PATCH /namespaces/{name}/quota` | body `UpdateQuotaRequest` — **deltas**. |
 | `delete_namespace` | `DELETE /namespaces/{name}` | `force` → `force_delete` vs `mark_for_deletion`. |
 | `create_egressip` | `POST /egressips` | `201`; body `CreateEgressIPRequest`. |
 | `list_egressips` | `GET /egressips` | optional `?labels=k=v` metadata filter. |
 | `get_egressip` | `GET /egressips/{name}` | single object or `404`. |
 | `delete_egressip` | `DELETE /egressips/{name}` | `200` / `404`. |
+| `list_nodes` | `GET /nodes` | from `NodeCache`; optional `?labels=k=v`. |
+| `get_node` | `GET /nodes/{name}` | cached `NodeDetail` or `404`. |
 
 Every route depends on `require_auth`, so identity is validated before any work.
 
@@ -392,16 +418,20 @@ docker compose build tests                    # rebuild after dependency changes
   surfacing — no thread), `test_namespace_service.py` (`NamespaceManager`
   create/update/mark/force against the fake), `test_logging.py` (stdout event
   logging).
-- **EgressIP tests:** `test_egressips.py` (unit — `EgressIPManager`
-  create/get/list/delete, 404/409, and schema validation: invalid IPs, empty
-  `namespace_labels`, bad name, IPv6) and `test_egress_api.py` (functional —
-  create/list-by-label/get/delete happy + error paths, auth 401).
-- **Functional tests:** `test_api.py` drives the real HTTP stack — auth 401s,
-  OpenAPI security advertisement, create/list/update/delete/status happy + error
-  paths, and force-delete removing resources then the namespace.
+- **EgressIP tests:** `test_egressips.py` (unit) and `test_egress_api.py`
+  (functional).
+- **Node tests:** `test_nodes.py` (unit — `NodeManager._detail` shaping,
+  `NodeCache` list/get/label-filter/ready) plus node routes in `test_api.py`
+  (list/filter/get/404/auth).
+- **Quota delta / PVC / CPU floor:** in `test_namespace_service.py` (delta add,
+  negative→422, base-0 dimension, cpu floor, pvc on create) and `test_api.py`
+  (delta PATCH, negative→422).
+- **Functional tests:** `test_api.py` drives the real HTTP stack across all
+  resources.
 
-86 tests total; functional tests use a long cache interval and call
-`app.state.cache.refresh()` explicitly where they need fresh data.
+131 tests total; functional tests use a long cache interval and call
+`app.state.cache.refresh()` / `app.state.node_cache.refresh()` explicitly where
+they need fresh data.
 
 ---
 

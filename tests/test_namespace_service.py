@@ -3,7 +3,7 @@
 import pytest
 
 from app.services.namespaces import QUOTA_NAME, NamespaceError, NamespaceManager
-from app.models import ResourceLimits
+from app.models import QuotaDelta, ResourceLimits
 from tests.fakes import FakeK8sClient, _Namespace
 
 ANNOTATION = "naas-api/marked-for-deletion-at"
@@ -164,22 +164,80 @@ def test_namespace_exists_true_and_false():
     assert manager.namespace_exists("ghost") is False
 
 
-def test_update_quota_only_changes_supplied_dimension():
+def test_update_quota_adds_delta_only_to_supplied_dimension():
     fake = FakeK8sClient()
     manager = _manager(fake)
     manager.create_namespace("team-a", ResourceLimits(memory="8Gi", cpu="4"))
 
-    manager.update_quota("team-a", ResourceLimits(memory="16Gi"))
+    manager.update_quota("team-a", QuotaDelta(memory="8"))  # +8Gi
 
     hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
-    assert hard["requests.memory"] == "16Gi"  # changed
+    assert hard["requests.memory"] == "16Gi"  # 8 + 8
     assert hard["requests.cpu"] == "4"  # untouched
+
+
+def test_update_quota_negative_delta_subtracts():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(storage="50Gi"))
+    manager.update_quota("team-a", QuotaDelta(storage="-10"))
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["requests.storage"] == "40Gi"
+
+
+def test_update_quota_on_dimension_not_yet_set_starts_from_zero():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    manager.update_quota("team-a", QuotaDelta(pvc_count=5))  # base 0 + 5
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["persistentvolumeclaims"] == "5"
+
+
+def test_update_quota_below_zero_is_422():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    with pytest.raises(NamespaceError) as exc:
+        manager.update_quota("team-a", QuotaDelta(memory="-20"))
+    assert exc.value.status_code == 422
+
+
+def test_update_quota_cpu_floored_at_one():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(cpu="3"))
+    manager.update_quota("team-a", QuotaDelta(cpu=-5))  # 3 - 5 = -2 -> floored to 1
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["requests.cpu"] == "1"
 
 
 def test_update_quota_on_missing_namespace_404():
     with pytest.raises(NamespaceError) as exc:
-        _manager(FakeK8sClient()).update_quota("ghost", ResourceLimits(memory="1Gi"))
+        _manager(FakeK8sClient()).update_quota("ghost", QuotaDelta(memory="1"))
     assert exc.value.status_code == 404
+
+
+# --- PVC quota + CPU floor on create ----------------------------------------
+def test_create_with_pvc_count():
+    fake = FakeK8sClient()
+    _manager(fake).create_namespace("team-a", ResourceLimits(memory="8Gi", pvc_count=10))
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["persistentvolumeclaims"] == "10"
+
+
+def test_create_without_pvc_count_omits_key():
+    fake = FakeK8sClient()
+    _manager(fake).create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert "persistentvolumeclaims" not in hard
+
+
+def test_create_cpu_floored_at_one():
+    fake = FakeK8sClient()
+    _manager(fake).create_namespace("team-a", ResourceLimits(cpu="0"))
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["requests.cpu"] == "1"
 
 
 def test_mark_for_deletion_sets_annotation():
