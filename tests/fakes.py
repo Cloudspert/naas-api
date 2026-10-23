@@ -37,6 +37,16 @@ class _ListResult:
         self.items = items
 
 
+class _ResourceQuota:
+    """Mimics the typed V1ResourceQuota: exposes to_dict(), NOT dict .get()."""
+
+    def __init__(self, data):
+        self._data = data
+
+    def to_dict(self):
+        return self._data
+
+
 # --------------------------------------------------------------------- nodes
 class _NodeAddress:
     def __init__(self, type, address):
@@ -143,11 +153,12 @@ class FakeCoreV1:
         return _ListResult(items)
 
     # resource quotas ----------------------------------------------------------
-    def read_namespaced_resource_quota(self, name: str, namespace: str) -> dict:
+    def read_namespaced_resource_quota(self, name: str, namespace: str):
         quota = self.quotas.get((namespace, name))
         if quota is None:
             raise ApiException(status=404, reason="NotFound")
-        return quota
+        # Return a typed-like object (to_dict, no .get) to match the real client.
+        return _ResourceQuota(quota)
 
     def create_namespaced_resource_quota(self, namespace: str, body: dict) -> dict:
         self.quotas[(namespace, body["metadata"]["name"])] = body

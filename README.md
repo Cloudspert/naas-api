@@ -20,8 +20,11 @@ update quotas, and delete (soft-mark or force).
   design (not yet implemented) for per-ecosystem EgressIP create/delete/get
   endpoints.
 - **[docs/design/nodes-and-quota-changes.md](docs/design/nodes-and-quota-changes.md)**
-  — design (not yet implemented) for node list/get endpoints, delta-based quota
-  updates, and an optional PVC-count quota.
+  — design (implemented) for node list/get endpoints, delta-based quota updates,
+  and an optional PVC-count quota.
+- **[docs/design/quota-update-mode.md](docs/design/quota-update-mode.md)** —
+  design (implemented) for the `mode=add|set` toggle on quota updates
+  (additive vs. absolute).
 - **Swagger UI** at `/docs` — the **Authorize** button is wired to the *active*
   auth module (HTTP Basic by default), so "Try it out" calls are authenticated.
 

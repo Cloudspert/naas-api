@@ -74,33 +74,38 @@ class NamespaceManager:
             "annotations": extra_annotations,
         }
 
-    def update_quota(self, name, delta):
-        """Add signed deltas to the current quota (only supplied dimensions)."""
+    def update_quota(self, name, values, mode="add"):
+        """Change the quota (only supplied dimensions).
+
+        mode="add": sum each value with the current one (delta).
+        mode="set": replace with the value (absolute). Implemented by using a 0
+        base in set mode, so result = 0 + value = value.
+        """
         self.require_namespace(name)
-        hard = self.current_hard(name)
+        hard = self.current_hard(name) if mode == "add" else {}
 
         absolute = {}
-        if delta.memory is not None:
-            result = _gi_to_int(hard.get("requests.memory", "0Gi")) + _gi_to_int(delta.memory)
+        if values.memory is not None:
+            result = _gi_to_int(hard.get("requests.memory", "0Gi")) + _gi_to_int(values.memory)
             if result < 0:
                 raise NamespaceError("memory would drop below zero", 422)
             absolute["memory"] = _int_to_gi(result)
-        if delta.storage is not None:
-            result = _gi_to_int(hard.get("requests.storage", "0Gi")) + _gi_to_int(delta.storage)
+        if values.storage is not None:
+            result = _gi_to_int(hard.get("requests.storage", "0Gi")) + _gi_to_int(values.storage)
             if result < 0:
                 raise NamespaceError("storage would drop below zero", 422)
             absolute["storage"] = _int_to_gi(result)
-        if delta.cpu is not None:
+        if values.cpu is not None:
             # cpu is floored at MIN_CPU in apply_quota, so no below-zero check.
-            absolute["cpu"] = str(int(hard.get("requests.cpu", "0") or 0) + delta.cpu)
-        if delta.pvc_count is not None:
-            result = int(hard.get("persistentvolumeclaims", "0") or 0) + delta.pvc_count
+            absolute["cpu"] = str(int(hard.get("requests.cpu", "0") or 0) + values.cpu)
+        if values.pvc_count is not None:
+            result = int(hard.get("persistentvolumeclaims", "0") or 0) + values.pvc_count
             if result < 0:
                 raise NamespaceError("pvc_count would drop below zero", 422)
             absolute["pvc_count"] = result
 
         quota = self.apply_quota(name, ResourceLimits(**absolute))
-        logger.info("event=quota_updated namespace=%s delta=%s quota=%s", name, absolute, quota)
+        logger.info("event=quota_updated namespace=%s mode=%s quota=%s", name, mode, quota)
         return {"namespace": name, "quota": quota}
 
     def mark_for_deletion(self, name):
@@ -213,6 +218,9 @@ class NamespaceManager:
         quota = self.read_quota(namespace)
         if quota is None:
             return {}
+        # The real client returns a typed V1ResourceQuota; normalize to a dict.
+        if not isinstance(quota, dict):
+            quota = quota.to_dict()
         spec = quota.get("spec") or {}
         return spec.get("hard") or {}
 

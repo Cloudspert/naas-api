@@ -202,6 +202,25 @@ def test_update_quota_negative_below_zero_422(client):
     assert resp.status_code == 422
 
 
+def test_update_quota_mode_set_replaces(client):
+    test_client, fake = client
+    test_client.post(BASE, json={"name": "team-a", "limits": {"memory": "8"}}, auth=AUTH)
+    resp = test_client.patch(
+        f"{BASE}/team-a/quota?mode=set", json={"limits": {"memory": "2"}}, auth=AUTH
+    )
+    assert resp.status_code == 200
+    hard = fake.core_v1.quotas[("team-a", "naas-api-quota")]["spec"]["hard"]
+    assert hard["requests.memory"] == "2Gi"  # replaced, not 8+2
+
+
+def test_update_quota_invalid_mode_422(client):
+    test_client, _ = client
+    resp = test_client.patch(
+        f"{BASE}/team-a/quota?mode=nope", json={"limits": {"memory": "2"}}, auth=AUTH
+    )
+    assert resp.status_code == 422
+
+
 def test_update_quota_empty_payload_returns_422(client):
     test_client, _ = client
     resp = test_client.patch(f"{BASE}/team-a/quota", json={"limits": {}}, auth=AUTH)

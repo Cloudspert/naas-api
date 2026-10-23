@@ -180,11 +180,24 @@ curl -u admin:pw https://<host>/api/v1/namespaces/team-a/status
 
 ---
 
-### 4. Update quotas (delta) — `PATCH /api/v1/namespaces/{name}/quota`
+### 4. Update quotas — `PATCH /api/v1/namespaces/{name}/quota`
 
-> **The values here are deltas — how much to ADD, not the new total.** Send a
-> negative number to subtract. Only the dimensions you send change; the rest are
-> left intact. At least one is required.
+Two modes via the `mode` query parameter:
+
+| `mode`           | Behavior                                             |
+|------------------|------------------------------------------------------|
+| `add` (default)  | the value is **added** to the current (delta, ±).    |
+| `set`            | the value **replaces** the current (absolute).       |
+
+> In `add` mode, send a negative number to subtract. Only the dimensions you
+> send change; the rest are left intact. At least one is required.
+
+```bash
+# current memory=8Gi:
+#   mode=add -> 10Gi,  mode=set -> 2Gi
+curl -u admin:pw -X PATCH "https://<host>/api/v1/namespaces/team-a/quota?mode=set" \
+  -H 'Content-Type: application/json' -d '{"limits":{"memory":2}}'
+```
 
 **Request body** (all values are plain integers)
 

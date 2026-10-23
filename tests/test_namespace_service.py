@@ -218,6 +218,33 @@ def test_update_quota_on_missing_namespace_404():
     assert exc.value.status_code == 404
 
 
+def test_update_quota_mode_set_replaces():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    manager.update_quota("team-a", QuotaDelta(memory="2"), mode="set")  # replace, not +2
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["requests.memory"] == "2Gi"
+
+
+def test_update_quota_mode_add_is_default():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    manager.update_quota("team-a", QuotaDelta(memory="2"))  # default add -> 10Gi
+    hard = fake.core_v1.quotas[("team-a", QUOTA_NAME)]["spec"]["hard"]
+    assert hard["requests.memory"] == "10Gi"
+
+
+def test_update_quota_mode_set_negative_is_422():
+    fake = FakeK8sClient()
+    manager = _manager(fake)
+    manager.create_namespace("team-a", ResourceLimits(memory="8Gi"))
+    with pytest.raises(NamespaceError) as exc:
+        manager.update_quota("team-a", QuotaDelta(memory="-2"), mode="set")
+    assert exc.value.status_code == 422
+
+
 # --- PVC quota + CPU floor on create ----------------------------------------
 def test_create_with_pvc_count():
     fake = FakeK8sClient()

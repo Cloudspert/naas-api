@@ -169,13 +169,15 @@ Methods:
 > alphanumerics/`-_.`, so an email (`@`) is not a legal label value. Annotations
 > take arbitrary strings. The cache surfaces them in `NamespaceSummary`, so the
 > list endpoint returns them.
-- **`update_quota(name, delta)`** — the body is a **`QuotaDelta`** (how much to
-  add, ±), not absolute values. Reads the current `spec.hard` (`current_hard`),
-  adds each supplied delta (base 0 for a dimension the quota didn't have), and
-  calls `apply_quota` with the computed absolutes. memory/storage are integer
-  `Gi` (strip `Gi` → int + delta → `<sum>Gi`), cpu/pvc are integers. A
-  memory/storage/pvc result **< 0 → 422**; cpu is instead floored at 1 in
-  `apply_quota`. No `kubernetes.utils.parse_quantity` — inputs are integers.
+- **`update_quota(name, values, mode="add")`** — body is a **`QuotaDelta`**.
+  `mode="add"` reads the current `spec.hard` (`current_hard`) and sums each value
+  with it; `mode="set"` uses a **0 base** (so result = value, i.e. absolute
+  replace). A dimension the quota didn't have starts from 0 in add mode too.
+  memory/storage are integer `Gi` (strip `Gi` → int ± → `<sum>Gi`), cpu/pvc are
+  integers. A memory/storage/pvc result **< 0 → 422**; cpu is floored at 1 in
+  `apply_quota`. Inputs are integers — no `parse_quantity`.
+  - **`current_hard(namespace)`** normalizes the quota via `.to_dict()` — the
+    real client returns a typed `V1ResourceQuota`, not a dict.
 - **`mark_for_deletion(name)`** — *soft delete*. Patches the namespace with an
   annotation `deletion_annotation_key = <UTC ISO timestamp>`. Nothing is removed.
 - **`force_delete(name)`** — `delete_all_resources` then `delete_namespace`
@@ -326,7 +328,7 @@ and `main` mounts that single router.
 | `create_namespace` | `POST /namespaces` | `201`; body `CreateNamespaceRequest`. |
 | `list_namespaces` | `GET /namespaces` | from the cache (no live call). |
 | `namespace_status` | `GET /namespaces/{name}/status` | live existence; `{exists: bool}`. |
-| `update_quota` | `PATCH /namespaces/{name}/quota` | body `UpdateQuotaRequest` — **deltas**. |
+| `update_quota` | `PATCH /namespaces/{name}/quota` | body `UpdateQuotaRequest`; `?mode=add` (sum, default) or `set` (replace). |
 | `delete_namespace` | `DELETE /namespaces/{name}` | `force` → `force_delete` vs `mark_for_deletion`. |
 | `create_egressip` | `POST /egressips` | `201`; body `CreateEgressIPRequest`. |
 | `list_egressips` | `GET /egressips` | optional `?labels=k=v` metadata filter. |

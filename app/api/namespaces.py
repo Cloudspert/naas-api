@@ -1,5 +1,7 @@
 """HTTP endpoints for namespace management."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import get_cache, get_manager, require_auth, run
@@ -39,10 +41,15 @@ def namespace_status(name: str, manager=Depends(get_manager), _=Depends(require_
 
 
 @router.patch("/{name}/quota", response_model=MessageResponse,
-              summary="Update quotas for a namespace (only supplied dimensions change)")
-def update_quota(name: str, payload: UpdateQuotaRequest, manager=Depends(get_manager),
-                 _=Depends(require_auth)):
-    result = run(lambda: manager.update_quota(name, payload.limits))
+              summary="Update quotas: mode=add sums with current (default), mode=set replaces")
+def update_quota(
+    name: str,
+    payload: UpdateQuotaRequest,
+    mode: Literal["add", "set"] = Query("add", description="add = sum with current; set = replace"),
+    manager=Depends(get_manager),
+    _=Depends(require_auth),
+):
+    result = run(lambda: manager.update_quota(name, payload.limits, mode))
     return MessageResponse(message="quota updated", namespace=name, details=result)
 
 
